@@ -62,13 +62,22 @@ static etc1_to_dxt1_56_solution result[32 * 8 * NUM_ETC1_TO_DXT1_SELECTOR_MAPPIN
 /**
  * Function to optimise.
  */
+static void extract_green_from_block_colours(uint8_t *block_green, int inten, uint32_t green)
+{
+    color32 orig_colours[4];
+    decoder_etc_block::get_diff_subblock_colors(orig_colours, decoder_etc_block::pack_color5(color32(green, green, green, 255), false), inten);
+    for (uint32_t idx = 0; idx < 4; idx += 1) {
+        block_green[idx] = orig_colours[idx].g;
+    }
+}
+
 static void create_etc1_to_dxt1_6_conversion_table()
 {
     uint32_t n = 0;
     for (int inten = 0; inten < 8; inten += 1) {
         for (uint32_t g = 0; g < 32; g += 1) {
-            color32 block_colors[4];
-            decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(g, g, g, 255), false), inten);
+            uint8_t block_green[4];
+            extract_green_from_block_colours(block_green, inten, g);
             for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr += 1) {
                 const uint16_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
                 const uint16_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
@@ -86,7 +95,7 @@ static void create_etc1_to_dxt1_6_conversion_table()
 
                             uint32_t total_err = 0;
                             for (uint16_t s = low_selector; s <= high_selector; s += 1) {
-                                int err = block_colors[s].g - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
+                                int err = block_green[s] - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
                                 total_err += err * err;
                             }
                             if (total_err < best_err) {
