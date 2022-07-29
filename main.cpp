@@ -66,70 +66,92 @@ static etc1_to_dxt1_56_solution result[32 * 8 * NUM_ETC1_TO_DXT1_SELECTOR_MAPPIN
  */
 
 // some constants to declare for convenience - this has negligible effect on performance
-const __m128i VAR_0_7 = _mm_set_epi16(7, 6, 5, 4, 3, 2, 1, 0);
-const __m128i VAR_8_15 = _mm_set_epi16(15, 14, 13, 12, 11, 10, 9, 8);
-const __m128i DIV_3 = _mm_set1_epi16(0x5556);
-const __m128i ZEROS = _mm_setzero_si128();
+const __m512i VAR_0_31 = _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+                                          15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+const __m512i VAR_32_63 = _mm512_set_epi16(63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48,
+                                           47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32);
+const __m512i DIV_3 = _mm512_set1_epi16(0x5556);
+const __m512i ZEROS = _mm512_setzero_si512();
 
-static void extract_green_from_block_colours(__m128i *block_green, int inten, uint32_t green)
+static void extract_green_from_block_colours(__m512i *block_green, int inten, uint32_t green)
 {
     color32 block_colors[4];
     decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(green, green, green, 255), false), inten);
     for (uint32_t idx = 0; idx < 4; idx += 1) {
-        block_green[idx] = _mm_set1_epi8((uint8_t)(block_colors[idx].g));;
+        block_green[idx] = _mm512_set1_epi8((uint8_t)(block_colors[idx].g));;
     }
 }
 
-static void make_colours(__m128i *colors, uint8_t high, __m128i &high16, __m128i &lows_lo, __m128i &lows_hi)
+static void make_colours(__m512i *colors, uint8_t high)
 {
-    __m128i hlf_lo = _mm_or_si128(_mm_slli_epi16(lows_lo, 2), _mm_srli_epi16(lows_lo, 4));
-    __m128i hlf_hi = _mm_or_si128(_mm_slli_epi16(lows_hi, 2), _mm_srli_epi16(lows_hi, 4));
-    colors[3] = _mm_set1_epi8(high);
-    colors[0] = _mm_packus_epi16(hlf_lo, hlf_hi);
-    colors[2] = _mm_packus_epi16(
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_lo), DIV_3),
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_hi), DIV_3)
+    __m512i high16 = _mm512_set1_epi16(high);
+    __m512i hlf_lo = _mm512_or_si512(_mm512_slli_epi16(VAR_0_31, 2), _mm512_srli_epi16(VAR_0_31, 4));
+    __m512i hlf_hi = _mm512_or_si512(_mm512_slli_epi16(VAR_32_63, 2), _mm512_srli_epi16(VAR_32_63, 4));
+    colors[3] = _mm512_set1_epi8(high);
+    colors[0] = _mm512_packus_epi16(hlf_lo, hlf_hi);
+    colors[2] = _mm512_packus_epi16(
+        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(high16, 1), hlf_lo), DIV_3),
+        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(high16, 1), hlf_hi), DIV_3)
     );
-    colors[1] = _mm_packus_epi16(
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_lo, 1), high16), DIV_3),
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_hi, 1), high16), DIV_3)
+    colors[1] = _mm512_packus_epi16(
+        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(hlf_lo, 1), high16), DIV_3),
+        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(hlf_hi, 1), high16), DIV_3)
     );
 }
 
-static void accumulate_errors(__m128i &total_err_lo, __m128i &total_err_hi, __m128i &block_green, __m128i &colors)
+static void accumulate_errors(__m512i &total_err_lo, __m512i &total_err_hi, __m512i &block_green, __m512i &colors)
 {
-    __m128i err = _mm_or_si128(
-        _mm_subs_epu8(block_green, colors),
-        _mm_subs_epu8(colors, block_green)
+    __m512i err = _mm512_or_si512(
+        _mm512_subs_epu8(block_green, colors),
+        _mm512_subs_epu8(colors, block_green)
     );
-    __m128i tmp_lo = _mm_unpacklo_epi8(err, ZEROS);
-    __m128i err2_lo = _mm_mullo_epi16(tmp_lo, tmp_lo);
-    __m128i tmp_hi = _mm_unpackhi_epi8(err, ZEROS);
-    __m128i err2_hi = _mm_mullo_epi16(tmp_hi, tmp_hi);
-    total_err_lo = _mm_adds_epu16(total_err_lo, err2_lo);
-    total_err_hi = _mm_adds_epu16(total_err_hi, err2_hi);
+    __m512i tmp_lo = _mm512_unpacklo_epi8(err, ZEROS);
+    __m512i err2_lo = _mm512_mullo_epi16(tmp_lo, tmp_lo);
+    __m512i tmp_hi = _mm512_unpackhi_epi8(err, ZEROS);
+    __m512i err2_hi = _mm512_mullo_epi16(tmp_hi, tmp_hi);
+    total_err_lo = _mm512_adds_epu16(total_err_lo, err2_lo);
+    total_err_hi = _mm512_adds_epu16(total_err_hi, err2_hi);
+}
+
+static void mm512_min_pos_epu16(uint16_t &min, uint16_t &pos, __m512i &vec)
+{
+    __m128i *vecs = (__m128i*)(&vec);
+
+    __m128i min_and_pos;
+    min = UINT16_MAX;
+    uint16_t glob_idx;
+
+    for (uint16_t idx = 0; idx < 4; idx += 1) {
+        __m128i loc_min_and_pos = _mm_minpos_epu16(vecs[idx]);
+        uint16_t loc_min = _mm_extract_epi16(loc_min_and_pos, 0);
+        if (loc_min < min) {
+            min = loc_min;
+            min_and_pos = loc_min_and_pos;
+            glob_idx = idx;
+        }
+    }
+    pos = _mm_extract_epi16(min_and_pos, 1) + (8 * glob_idx);
 }
 
 static void adjust_bests(
     uint16_t &best_err, uint8_t &best_lo, uint8_t &best_hi,
-    __m128i &total_err_lo, __m128i &total_err_hi,
-    __m128i &lows_lo, __m128i &lows_hi, uint16_t hi)
+    __m512i &total_err_lo, __m512i &total_err_hi, uint16_t hi)
 {
-    __m128i min_and_pos_lo = _mm_minpos_epu16(total_err_lo);
-    __m128i min_and_pos_hi = _mm_minpos_epu16(total_err_hi);
-    uint16_t min_lo = _mm_extract_epi16(min_and_pos_lo, 0);
-    uint16_t min_hi = _mm_extract_epi16(min_and_pos_hi, 0);
+    uint16_t min_lo;
+    uint16_t pos_lo;
+    mm512_min_pos_epu16(min_lo, pos_lo, total_err_lo);
+    uint16_t min_hi;
+    uint16_t pos_hi;
+    mm512_min_pos_epu16(min_hi, pos_hi, total_err_hi);
 
     if (min_lo < best_err) {
         best_err = min_lo;
-        uint16_t pos = _mm_extract_epi16(min_and_pos_lo, 1);
-        best_lo = ((uint16_t*)(&lows_lo))[pos];
+        best_lo = pos_lo;
         best_hi = hi;
     }
     if (min_hi < best_err) {
         best_err = min_hi;
-        uint16_t pos = _mm_extract_epi16(min_and_pos_hi, 1);
-        best_lo = ((uint16_t*)(&lows_hi))[pos];
+        best_lo = pos_hi;
         best_hi = hi;
     }
 }
@@ -137,8 +159,8 @@ static void adjust_bests(
 static void create_etc1_to_dxt1_6_conversion_table()
 {
     uint32_t n = 0;
-    __m128i block_green[4];
-    __m128i colors[4];
+    __m512i block_green[4];
+    __m512i colors[4];
 
     for (int inten = 0; inten < 8; inten += 1) {
         for (uint32_t g = 0; g < 32; g += 1) {
@@ -153,21 +175,15 @@ static void create_etc1_to_dxt1_6_conversion_table()
 
                     for (uint16_t hi = 0; hi < 64; hi += 1) {
                         uint16_t high = (hi << 2) | (hi >> 4);
-                        __m128i high16 = _mm_set1_epi16(high);
-                        for (uint16_t lo = 0; lo < 64; lo += 16) {
-                            __m128i offset = _mm_set1_epi16(lo);
-                            __m128i lows_lo = _mm_add_epi16(VAR_0_7, offset);
-                            __m128i lows_hi = _mm_add_epi16(VAR_8_15, offset);
-                            make_colours(colors, high, high16, lows_lo, lows_hi);
+                        make_colours(colors, high);
 
-                            __m128i total_err_lo = _mm_setzero_si128();
-                            __m128i total_err_hi = _mm_setzero_si128();
-                            for (uint16_t s = low_selector; s <= high_selector; s += 1) {
-                                uint8_t idx = g_etc1_to_dxt1_selector_mappings[m][s];
-                                accumulate_errors(total_err_lo, total_err_hi, block_green[s], colors[idx]);
-                            }
-                            adjust_bests(best_err, best_lo, best_hi, total_err_lo, total_err_hi, lows_lo, lows_hi, hi);
+                        __m512i total_err_lo = _mm512_setzero_si512();
+                        __m512i total_err_hi = _mm512_setzero_si512();
+                        for (uint16_t s = low_selector; s <= high_selector; s += 1) {
+                            uint8_t idx = g_etc1_to_dxt1_selector_mappings[m][s];
+                            accumulate_errors(total_err_lo, total_err_hi, block_green[s], colors[idx]);
                         }
+                        adjust_bests(best_err, best_lo, best_hi, total_err_lo, total_err_hi, hi);
                     }
                     assert(best_err <= 0xFFFF);
                     result[n] = (etc1_to_dxt1_56_solution){ best_lo, best_hi, best_err };
