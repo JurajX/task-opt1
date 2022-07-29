@@ -19,6 +19,8 @@
 #include <cstring>
 #include <ctime>
 
+#include <immintrin.h>
+
 //************************** Helpers and Boilerplate **************************/
 
 #include "basisu_headers.h"
@@ -62,21 +64,28 @@ static etc1_to_dxt1_56_solution result[32 * 8 * NUM_ETC1_TO_DXT1_SELECTOR_MAPPIN
 /**
  * Function to optimise.
  */
-static void extract_green_from_block_colours(uint8_t *block_green, int inten, uint32_t green)
+
+// some constants to declare for convenience - this has negligible effect on performance
+const __m128i VAR_0_7 = _mm_set_epi16(7, 6, 5, 4, 3, 2, 1, 0);
+const __m128i DIV_3 = _mm_set1_epi16(0x5556);
+
+static void extract_green_from_block_colours(__m128i *block_green, int inten, uint32_t green)
 {
-    color32 orig_colours[4];
-    decoder_etc_block::get_diff_subblock_colors(orig_colours, decoder_etc_block::pack_color5(color32(green, green, green, 255), false), inten);
+    color32 block_colors[4];
+    decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(green, green, green, 255), false), inten);
     for (uint32_t idx = 0; idx < 4; idx += 1) {
-        block_green[idx] = orig_colours[idx].g;
+        block_green[idx] = _mm_set1_epi16((uint16_t)(block_colors[idx].g));;
     }
 }
 
 static void create_etc1_to_dxt1_6_conversion_table()
 {
     uint32_t n = 0;
+    __m128i block_green[4];
+    __m128i colors[4];
+
     for (int inten = 0; inten < 8; inten += 1) {
         for (uint32_t g = 0; g < 32; g += 1) {
-            uint8_t block_green[4];
             extract_green_from_block_colours(block_green, inten, g);
             for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr += 1) {
                 const uint16_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
@@ -85,22 +94,33 @@ static void create_etc1_to_dxt1_6_conversion_table()
                     uint8_t best_lo = 0;
                     uint8_t best_hi = 0;
                     uint16_t best_err = UINT16_MAX;
-                    for (uint16_t hi = 0; hi < 64; hi += 1) {
-                        for (uint16_t lo = 0; lo < 64; lo += 1) {
-                            uint16_t colors[4];
-                            colors[0] = (lo << 2) | (lo >> 4);
-                            colors[3] = (hi << 2) | (hi >> 4);
-                            colors[1] = (colors[0] * 2 + colors[3]) / 3;
-                            colors[2] = (colors[3] * 2 + colors[0]) / 3;
 
-                            uint32_t total_err = 0;
+                    for (uint16_t hi = 0; hi < 64; hi += 1) {
+                        uint16_t high = (hi << 2) | (hi >> 4);
+                        colors[3] = _mm_set1_epi16(high);
+                        for (uint16_t lo = 0; lo < 64; lo += 8) {
+                            const __m128i lows = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
+                            colors[0] = _mm_or_si128(_mm_slli_epi16(lows, 2), _mm_srli_epi16(lows, 4));
+                            colors[1] = _mm_slli_epi16(colors[0], 1);
+                            colors[1] = _mm_add_epi16(colors[1], colors[3]);
+                            colors[1] = _mm_mulhi_epu16(colors[1], DIV_3);
+                            colors[2] = _mm_slli_epi16(colors[3], 1);
+                            colors[2] = _mm_add_epi16(colors[2], colors[0]);
+                            colors[2] = _mm_mulhi_epu16(colors[2], DIV_3);
+
+                            __m128i total_err = _mm_setzero_si128();
                             for (uint16_t s = low_selector; s <= high_selector; s += 1) {
-                                int err = block_green[s] - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
-                                total_err += err * err;
+                                uint8_t idx = g_etc1_to_dxt1_selector_mappings[m][s];
+                                __m128i err = _mm_sub_epi16(block_green[s], colors[idx]);
+                                __m128i err2 = _mm_mullo_epi16(err, err);
+                                total_err = _mm_adds_epu16(total_err, err2);
                             }
-                            if (total_err < best_err) {
-                                best_err = total_err;
-                                best_lo = lo;
+                            __m128i min_and_pos = _mm_minpos_epu16(total_err);
+                            uint16_t min_err = _mm_extract_epi16(min_and_pos, 0);
+                            if (min_err < best_err) {
+                                best_err = min_err;
+                                uint16_t pos = _mm_extract_epi16(min_and_pos, 1);
+                                best_lo = lo + pos;
                                 best_hi = hi;
                             }
                         }
