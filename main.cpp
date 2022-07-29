@@ -70,22 +70,22 @@ static void create_etc1_to_dxt1_6_conversion_table()
             color32 block_colors[4];
             decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(g, g, g, 255), false), inten);
             for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr += 1) {
-                const uint32_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
-                const uint32_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
+                const uint16_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
+                const uint16_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
                 for (uint32_t m = 0; m < NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS; m += 1) {
-                    uint32_t best_lo = 0;
-                    uint32_t best_hi = 0;
-                    uint32_t best_err = UINT32_MAX;
-                    for (uint32_t hi = 0; hi < 64; hi += 1) {
-                        for (uint32_t lo = 0; lo < 64; lo += 1) {
-                            uint32_t colors[4];
+                    uint8_t best_lo = 0;
+                    uint8_t best_hi = 0;
+                    uint16_t best_err = UINT16_MAX;
+                    for (uint16_t hi = 0; hi < 64; hi += 1) {
+                        for (uint16_t lo = 0; lo < 64; lo += 1) {
+                            uint16_t colors[4];
                             colors[0] = (lo << 2) | (lo >> 4);
                             colors[3] = (hi << 2) | (hi >> 4);
                             colors[1] = (colors[0] * 2 + colors[3]) / 3;
                             colors[2] = (colors[3] * 2 + colors[0]) / 3;
 
                             uint32_t total_err = 0;
-                            for (uint32_t s = low_selector; s <= high_selector; s += 1) {
+                            for (uint16_t s = low_selector; s <= high_selector; s += 1) {
                                 int err = block_colors[s].g - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
                                 total_err += err * err;
                             }
@@ -97,7 +97,7 @@ static void create_etc1_to_dxt1_6_conversion_table()
                         }
                     }
                     assert(best_err <= 0xFFFF);
-                    result[n] = (etc1_to_dxt1_56_solution){ (uint8_t)best_lo, (uint8_t)best_hi, (uint16_t)best_err };
+                    result[n] = (etc1_to_dxt1_56_solution){ best_lo, best_hi, best_err };
                     n += 1;
                 } // m
             } // sr
