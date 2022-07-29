@@ -67,14 +67,70 @@ static etc1_to_dxt1_56_solution result[32 * 8 * NUM_ETC1_TO_DXT1_SELECTOR_MAPPIN
 
 // some constants to declare for convenience - this has negligible effect on performance
 const __m128i VAR_0_7 = _mm_set_epi16(7, 6, 5, 4, 3, 2, 1, 0);
+const __m128i VAR_8_15 = _mm_set_epi16(15, 14, 13, 12, 11, 10, 9, 8);
 const __m128i DIV_3 = _mm_set1_epi16(0x5556);
+const __m128i ZEROS = _mm_setzero_si128();
 
 static void extract_green_from_block_colours(__m128i *block_green, int inten, uint32_t green)
 {
     color32 block_colors[4];
     decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(green, green, green, 255), false), inten);
     for (uint32_t idx = 0; idx < 4; idx += 1) {
-        block_green[idx] = _mm_set1_epi16((uint16_t)(block_colors[idx].g));;
+        block_green[idx] = _mm_set1_epi8((uint8_t)(block_colors[idx].g));;
+    }
+}
+
+static void make_colours(__m128i *colors, uint8_t high, __m128i &high16, __m128i &lows_lo, __m128i &lows_hi)
+{
+    __m128i hlf_lo = _mm_or_si128(_mm_slli_epi16(lows_lo, 2), _mm_srli_epi16(lows_lo, 4));
+    __m128i hlf_hi = _mm_or_si128(_mm_slli_epi16(lows_hi, 2), _mm_srli_epi16(lows_hi, 4));
+    colors[3] = _mm_set1_epi8(high);
+    colors[0] = _mm_packus_epi16(hlf_lo, hlf_hi);
+    colors[2] = _mm_packus_epi16(
+        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_lo), DIV_3),
+        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_hi), DIV_3)
+    );
+    colors[1] = _mm_packus_epi16(
+        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_lo, 1), high16), DIV_3),
+        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_hi, 1), high16), DIV_3)
+    );
+}
+
+static void accumulate_errors(__m128i &total_err_lo, __m128i &total_err_hi, __m128i &block_green, __m128i &colors)
+{
+    __m128i err = _mm_or_si128(
+        _mm_subs_epu8(block_green, colors),
+        _mm_subs_epu8(colors, block_green)
+    );
+    __m128i tmp_lo = _mm_unpacklo_epi8(err, ZEROS);
+    __m128i err2_lo = _mm_mullo_epi16(tmp_lo, tmp_lo);
+    __m128i tmp_hi = _mm_unpackhi_epi8(err, ZEROS);
+    __m128i err2_hi = _mm_mullo_epi16(tmp_hi, tmp_hi);
+    total_err_lo = _mm_adds_epu16(total_err_lo, err2_lo);
+    total_err_hi = _mm_adds_epu16(total_err_hi, err2_hi);
+}
+
+static void adjust_bests(
+    uint16_t &best_err, uint8_t &best_lo, uint8_t &best_hi,
+    __m128i &total_err_lo, __m128i &total_err_hi,
+    __m128i &lows_lo, __m128i &lows_hi, uint16_t hi)
+{
+    __m128i min_and_pos_lo = _mm_minpos_epu16(total_err_lo);
+    __m128i min_and_pos_hi = _mm_minpos_epu16(total_err_hi);
+    uint16_t min_lo = _mm_extract_epi16(min_and_pos_lo, 0);
+    uint16_t min_hi = _mm_extract_epi16(min_and_pos_hi, 0);
+
+    if (min_lo < best_err) {
+        best_err = min_lo;
+        uint16_t pos = _mm_extract_epi16(min_and_pos_lo, 1);
+        best_lo = ((uint16_t*)(&lows_lo))[pos];
+        best_hi = hi;
+    }
+    if (min_hi < best_err) {
+        best_err = min_hi;
+        uint16_t pos = _mm_extract_epi16(min_and_pos_hi, 1);
+        best_lo = ((uint16_t*)(&lows_hi))[pos];
+        best_hi = hi;
     }
 }
 
@@ -97,32 +153,20 @@ static void create_etc1_to_dxt1_6_conversion_table()
 
                     for (uint16_t hi = 0; hi < 64; hi += 1) {
                         uint16_t high = (hi << 2) | (hi >> 4);
-                        colors[3] = _mm_set1_epi16(high);
-                        for (uint16_t lo = 0; lo < 64; lo += 8) {
-                            const __m128i lows = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
-                            colors[0] = _mm_or_si128(_mm_slli_epi16(lows, 2), _mm_srli_epi16(lows, 4));
-                            colors[1] = _mm_slli_epi16(colors[0], 1);
-                            colors[1] = _mm_add_epi16(colors[1], colors[3]);
-                            colors[1] = _mm_mulhi_epu16(colors[1], DIV_3);
-                            colors[2] = _mm_slli_epi16(colors[3], 1);
-                            colors[2] = _mm_add_epi16(colors[2], colors[0]);
-                            colors[2] = _mm_mulhi_epu16(colors[2], DIV_3);
+                        __m128i high16 = _mm_set1_epi16(high);
+                        for (uint16_t lo = 0; lo < 64; lo += 16) {
+                            __m128i offset = _mm_set1_epi16(lo);
+                            __m128i lows_lo = _mm_add_epi16(VAR_0_7, offset);
+                            __m128i lows_hi = _mm_add_epi16(VAR_8_15, offset);
+                            make_colours(colors, high, high16, lows_lo, lows_hi);
 
-                            __m128i total_err = _mm_setzero_si128();
+                            __m128i total_err_lo = _mm_setzero_si128();
+                            __m128i total_err_hi = _mm_setzero_si128();
                             for (uint16_t s = low_selector; s <= high_selector; s += 1) {
                                 uint8_t idx = g_etc1_to_dxt1_selector_mappings[m][s];
-                                __m128i err = _mm_sub_epi16(block_green[s], colors[idx]);
-                                __m128i err2 = _mm_mullo_epi16(err, err);
-                                total_err = _mm_adds_epu16(total_err, err2);
+                                accumulate_errors(total_err_lo, total_err_hi, block_green[s], colors[idx]);
                             }
-                            __m128i min_and_pos = _mm_minpos_epu16(total_err);
-                            uint16_t min_err = _mm_extract_epi16(min_and_pos, 0);
-                            if (min_err < best_err) {
-                                best_err = min_err;
-                                uint16_t pos = _mm_extract_epi16(min_and_pos, 1);
-                                best_lo = lo + pos;
-                                best_hi = hi;
-                            }
+                            adjust_bests(best_err, best_lo, best_hi, total_err_lo, total_err_hi, lows_lo, lows_hi, hi);
                         }
                     }
                     assert(best_err <= 0xFFFF);
