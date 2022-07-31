@@ -66,10 +66,10 @@ static etc1_to_dxt1_56_solution result[32 * 8 * NUM_ETC1_TO_DXT1_SELECTOR_MAPPIN
  */
 
 // some constants to declare for convenience - this has negligible effect on performance
-const __m512i VAR_0_31 = _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
-                                          15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-const __m512i VAR_32_63 = _mm512_set_epi16(63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48,
-                                           47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32);
+const __m512i VAR_0_31 = _mm512_set_epi64(0x001F001E001D001C, 0x001B001A00190018, 0x0017001600150014, 0x0013001200110010,
+                                          0x000F000E000D000C, 0x000B000A00090008, 0x0007000600050004, 0x0003000200010000);
+const __m512i VAR_32_63 = _mm512_set_epi64(0x003F003E003D003C, 0x003B003A00390038, 0x0037003600350034, 0x0033003200310030,
+                                           0x002F002E002D002C, 0x002B002A00290028, 0x0027002600250024, 0x0023002200210020);
 const __m512i DIV_3 = _mm512_set1_epi16(0x5556);
 const __m512i ZEROS = _mm512_setzero_si512();
 
@@ -87,7 +87,7 @@ static void precompute_colours(__m512i *color_table)
     __m512i *colors;
     for (uint16_t hi = 0; hi < 64; hi += 1) {
         uint16_t high = (hi << 2) | (hi >> 4);
-        colors = &(color_table[4*(hi<<6)]);
+        colors = &(color_table[4*hi]);
 
         __m512i high16 = _mm512_set1_epi16(high);
         __m512i hlf_lo = _mm512_or_si512(_mm512_slli_epi16(VAR_0_31, 2), _mm512_srli_epi16(VAR_0_31, 4));
@@ -119,7 +119,7 @@ static void accumulate_errors(__m512i &total_err_lo, __m512i &total_err_hi, __m5
     total_err_hi = _mm512_adds_epu16(total_err_hi, err2_hi);
 }
 
-static void mm512_min_pos_epu16(uint16_t &min, uint16_t &pos, __m512i &vec)
+static void mm512_min_pos_epu16(uint16_t &min, uint16_t &pos, __m512i &vec, uint16_t offset = 0)
 {
     __m128i *vecs = (__m128i*)(&vec);
 
@@ -136,7 +136,7 @@ static void mm512_min_pos_epu16(uint16_t &min, uint16_t &pos, __m512i &vec)
             glob_idx = idx;
         }
     }
-    pos = _mm_extract_epi16(min_and_pos, 1) + (8 * glob_idx);
+    pos = _mm_extract_epi16(min_and_pos, 1) + (8 * glob_idx + offset);
 }
 
 static void adjust_bests(
@@ -148,7 +148,7 @@ static void adjust_bests(
     mm512_min_pos_epu16(min_lo, pos_lo, total_err_lo);
     uint16_t min_hi;
     uint16_t pos_hi;
-    mm512_min_pos_epu16(min_hi, pos_hi, total_err_hi);
+    mm512_min_pos_epu16(min_hi, pos_hi, total_err_hi, 32);
 
     if (min_lo < best_err) {
         best_err = min_lo;
@@ -182,7 +182,7 @@ static void create_etc1_to_dxt1_6_conversion_table()
                     uint16_t best_err = UINT16_MAX;
 
                     for (uint16_t hi = 0; hi < 64; hi += 1) {
-                        colors = &(color_table[4*(hi<<6)]);
+                        colors = &(color_table[4*hi]);
 
                         __m512i total_err_lo = _mm512_setzero_si512();
                         __m512i total_err_hi = _mm512_setzero_si512();
@@ -192,7 +192,6 @@ static void create_etc1_to_dxt1_6_conversion_table()
                         }
                         adjust_bests(best_err, best_lo, best_hi, total_err_lo, total_err_hi, hi);
                     }
-                    assert(best_err <= 0xFFFF);
                     result[n] = (etc1_to_dxt1_56_solution){ best_lo, best_hi, best_err };
                     n += 1;
                 } // m
