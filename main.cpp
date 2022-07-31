@@ -133,8 +133,9 @@ static void create_etc1_to_dxt1_6_conversion_table()
                             if (min_err < best_err) {
                                 best_err = min_err;
                                 uint16_t pos = _mm_extract_epi16(min_and_pos, 1);
-                                __m128i lows = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
-                                best_lo = ((uint16_t*)(&lows))[pos];
+                                uint16_t b_lo[8];
+                                _mm_store_si128((__m128i *)b_lo, _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo)));
+                                best_lo = b_lo[pos];
                                 best_hi = hi;
                             }
                         }
