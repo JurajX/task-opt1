@@ -82,21 +82,27 @@ static void extract_green_from_block_colours(__m512i *block_green, int inten, ui
     }
 }
 
-static void make_colours(__m512i *colors, uint8_t high)
+static void precompute_colours(__m512i *color_table)
 {
-    __m512i high16 = _mm512_set1_epi16(high);
-    __m512i hlf_lo = _mm512_or_si512(_mm512_slli_epi16(VAR_0_31, 2), _mm512_srli_epi16(VAR_0_31, 4));
-    __m512i hlf_hi = _mm512_or_si512(_mm512_slli_epi16(VAR_32_63, 2), _mm512_srli_epi16(VAR_32_63, 4));
-    colors[3] = _mm512_set1_epi8(high);
-    colors[0] = _mm512_packus_epi16(hlf_lo, hlf_hi);
-    colors[2] = _mm512_packus_epi16(
-        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(high16, 1), hlf_lo), DIV_3),
-        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(high16, 1), hlf_hi), DIV_3)
-    );
-    colors[1] = _mm512_packus_epi16(
-        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(hlf_lo, 1), high16), DIV_3),
-        _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(hlf_hi, 1), high16), DIV_3)
-    );
+    __m512i *colors;
+    for (uint16_t hi = 0; hi < 64; hi += 1) {
+        uint16_t high = (hi << 2) | (hi >> 4);
+        colors = &(color_table[4*(hi<<6)]);
+
+        __m512i high16 = _mm512_set1_epi16(high);
+        __m512i hlf_lo = _mm512_or_si512(_mm512_slli_epi16(VAR_0_31, 2), _mm512_srli_epi16(VAR_0_31, 4));
+        __m512i hlf_hi = _mm512_or_si512(_mm512_slli_epi16(VAR_32_63, 2), _mm512_srli_epi16(VAR_32_63, 4));
+        colors[3] = _mm512_set1_epi8(high);
+        colors[0] = _mm512_packus_epi16(hlf_lo, hlf_hi);
+        colors[2] = _mm512_packus_epi16(
+            _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(high16, 1), hlf_lo), DIV_3),
+            _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(high16, 1), hlf_hi), DIV_3)
+        );
+        colors[1] = _mm512_packus_epi16(
+            _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(hlf_lo, 1), high16), DIV_3),
+            _mm512_mulhi_epu16(_mm512_add_epi16(_mm512_slli_epi16(hlf_hi, 1), high16), DIV_3)
+        );
+    }
 }
 
 static void accumulate_errors(__m512i &total_err_lo, __m512i &total_err_hi, __m512i &block_green, __m512i &colors)
@@ -160,7 +166,9 @@ static void create_etc1_to_dxt1_6_conversion_table()
 {
     uint32_t n = 0;
     __m512i block_green[4];
-    __m512i colors[4];
+    __m512i color_table[4*64];
+    precompute_colours(color_table);
+    __m512i *colors;
 
     for (int inten = 0; inten < 8; inten += 1) {
         for (uint32_t g = 0; g < 32; g += 1) {
@@ -174,8 +182,7 @@ static void create_etc1_to_dxt1_6_conversion_table()
                     uint16_t best_err = UINT16_MAX;
 
                     for (uint16_t hi = 0; hi < 64; hi += 1) {
-                        uint16_t high = (hi << 2) | (hi >> 4);
-                        make_colours(colors, high);
+                        colors = &(color_table[4*(hi<<6)]);
 
                         __m512i total_err_lo = _mm512_setzero_si512();
                         __m512i total_err_hi = _mm512_setzero_si512();
