@@ -135,15 +135,17 @@ static void adjust_bests(
     if (min_lo < best_err) {
         best_err = min_lo;
         uint16_t pos = _mm_extract_epi16(min_and_pos_lo, 1);
-        __m128i lows_lo = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
-        best_lo = ((uint16_t*)(&lows_lo))[pos];
+        uint16_t b_lo[8];
+        _mm_store_si128((__m128i *)b_lo, _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo)));
+        best_lo = b_lo[pos];
         best_hi = hi;
     }
     if (min_hi < best_err) {
         best_err = min_hi;
         uint16_t pos = _mm_extract_epi16(min_and_pos_hi, 1);
-        __m128i lows_hi = _mm_add_epi16(VAR_8_15, _mm_set1_epi16(lo));
-        best_lo = ((uint16_t*)(&lows_hi))[pos];
+        uint16_t b_lo[8];
+        _mm_store_si128((__m128i *)b_lo, _mm_add_epi16(VAR_8_15, _mm_set1_epi16(lo)));
+        best_lo = b_lo[pos];
         best_hi = hi;
     }
 }
