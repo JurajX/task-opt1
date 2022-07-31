@@ -78,11 +78,34 @@ static void extract_green_from_block_colours(__m128i *block_green, int inten, ui
     }
 }
 
+static void precompute_colours(__m128i *color_table)
+{
+    __m128i *colors;
+    for (uint16_t hi = 0; hi < 64; hi += 1) {
+        uint16_t high = (hi << 2) | (hi >> 4);
+        __m128i high16 = _mm_set1_epi16(high);
+        for (uint16_t lo = 0; lo < 64; lo += 8) {
+            colors = &(color_table[4*( (hi<<3)+(lo>>3) )]);
+            __m128i lows = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
+            colors[0] = _mm_or_si128(_mm_slli_epi16(lows, 2), _mm_srli_epi16(lows, 4));
+            colors[3] = high16;
+            colors[1] = _mm_slli_epi16(colors[0], 1);
+            colors[1] = _mm_add_epi16(colors[1], colors[3]);
+            colors[1] = _mm_mulhi_epu16(colors[1], DIV_3);
+            colors[2] = _mm_slli_epi16(colors[3], 1);
+            colors[2] = _mm_add_epi16(colors[2], colors[0]);
+            colors[2] = _mm_mulhi_epu16(colors[2], DIV_3);
+        }
+    }
+}
+
 static void create_etc1_to_dxt1_6_conversion_table()
 {
     uint32_t n = 0;
     __m128i block_green[4];
-    __m128i colors[4];
+    __m128i color_table[4*64*8];
+    precompute_colours(color_table);
+    __m128i *colors;
 
     for (int inten = 0; inten < 8; inten += 1) {
         for (uint32_t g = 0; g < 32; g += 1) {
@@ -96,18 +119,8 @@ static void create_etc1_to_dxt1_6_conversion_table()
                     uint16_t best_err = UINT16_MAX;
 
                     for (uint16_t hi = 0; hi < 64; hi += 1) {
-                        uint16_t high = (hi << 2) | (hi >> 4);
-                        colors[3] = _mm_set1_epi16(high);
                         for (uint16_t lo = 0; lo < 64; lo += 8) {
-                            const __m128i lows = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
-                            colors[0] = _mm_or_si128(_mm_slli_epi16(lows, 2), _mm_srli_epi16(lows, 4));
-                            colors[1] = _mm_slli_epi16(colors[0], 1);
-                            colors[1] = _mm_add_epi16(colors[1], colors[3]);
-                            colors[1] = _mm_mulhi_epu16(colors[1], DIV_3);
-                            colors[2] = _mm_slli_epi16(colors[3], 1);
-                            colors[2] = _mm_add_epi16(colors[2], colors[0]);
-                            colors[2] = _mm_mulhi_epu16(colors[2], DIV_3);
-
+                            colors = &(color_table[4*( (hi<<3)+(lo>>3) )]);
                             __m128i total_err = _mm_setzero_si128();
                             for (uint16_t s = low_selector; s <= high_selector; s += 1) {
                                 uint8_t idx = g_etc1_to_dxt1_selector_mappings[m][s];
@@ -120,7 +133,8 @@ static void create_etc1_to_dxt1_6_conversion_table()
                             if (min_err < best_err) {
                                 best_err = min_err;
                                 uint16_t pos = _mm_extract_epi16(min_and_pos, 1);
-                                best_lo = lo + pos;
+                                __m128i lows = _mm_add_epi16(VAR_0_7, _mm_set1_epi16(lo));
+                                best_lo = ((uint16_t*)(&lows))[pos];
                                 best_hi = hi;
                             }
                         }
