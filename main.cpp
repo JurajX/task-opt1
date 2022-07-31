@@ -80,22 +80,6 @@ static void extract_green_from_block_colours(__m128i *block_green, int inten, ui
     }
 }
 
-static void make_colours(__m128i *colors, uint8_t high, __m128i &high16, __m128i &lows_lo, __m128i &lows_hi)
-{
-    __m128i hlf_lo = _mm_or_si128(_mm_slli_epi16(lows_lo, 2), _mm_srli_epi16(lows_lo, 4));
-    __m128i hlf_hi = _mm_or_si128(_mm_slli_epi16(lows_hi, 2), _mm_srli_epi16(lows_hi, 4));
-    colors[3] = _mm_set1_epi8(high);
-    colors[0] = _mm_packus_epi16(hlf_lo, hlf_hi);
-    colors[2] = _mm_packus_epi16(
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_lo), DIV_3),
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_hi), DIV_3)
-    );
-    colors[1] = _mm_packus_epi16(
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_lo, 1), high16), DIV_3),
-        _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_hi, 1), high16), DIV_3)
-    );
-}
-
 static void precompute_colours(__m128i *color_table)
 {
     __m128i *colors;
@@ -107,7 +91,19 @@ static void precompute_colours(__m128i *color_table)
             __m128i lows_lo = _mm_add_epi16(VAR_0_7, offset);
             __m128i lows_hi = _mm_add_epi16(VAR_8_15, offset);
             colors = &(color_table[4*((hi<<2)+(lo>>4))]);
-            make_colours(colors, high, high16, lows_lo, lows_hi);
+
+            __m128i hlf_lo = _mm_or_si128(_mm_slli_epi16(lows_lo, 2), _mm_srli_epi16(lows_lo, 4));
+            __m128i hlf_hi = _mm_or_si128(_mm_slli_epi16(lows_hi, 2), _mm_srli_epi16(lows_hi, 4));
+            colors[3] = _mm_set1_epi8(high);
+            colors[0] = _mm_packus_epi16(hlf_lo, hlf_hi);
+            colors[2] = _mm_packus_epi16(
+                _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_lo), DIV_3),
+                _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(high16, 1), hlf_hi), DIV_3)
+            );
+            colors[1] = _mm_packus_epi16(
+                _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_lo, 1), high16), DIV_3),
+                _mm_mulhi_epu16(_mm_add_epi16(_mm_slli_epi16(hlf_hi, 1), high16), DIV_3)
+            );
         }
     }
 }
