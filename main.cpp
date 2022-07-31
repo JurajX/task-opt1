@@ -181,7 +181,6 @@ static void create_etc1_to_dxt1_6_conversion_table()
                             adjust_bests(best_err, best_lo, best_hi, total_err_lo, total_err_hi, lo, hi);
                         }
                     }
-                    assert(best_err <= 0xFFFF);
                     result[n] = (etc1_to_dxt1_56_solution){ best_lo, best_hi, best_err };
                     n += 1;
                 } // m
